@@ -1,0 +1,102 @@
+#include <stdio.h>
+#include <stdlib.h>
+#include <assert.h>
+#include <pthread.h>
+#include "pid.c"
+
+#define MIN_PID 100
+#define MAX_PID 1000
+
+struct pid_work {
+	unsigned int pid_bit;
+	struct pid_work *next;
+};
+
+static struct pid_work *workld; 
+static unsigned int *map;
+static unsigned int last_set_bit;
+
+int allocate_map()
+{
+	int m_size = ((MAX_PID - MIN_PID) + 1) / sizeof *map;
+	map = calloc(m_size, sizeof *map);
+	if(!map)
+		return 0;
+
+	workld = calloc(1, sizeof *cache);
+	if(!workld) {
+		free(map);
+		return 0;
+	}
+
+	last_set_bit = -1;
+
+	return 1;
+}
+
+int allocate_pid()
+{
+	int bit;
+	int arr_index;
+	int shift;
+	int cached;
+
+	cached = 0;
+	bit = last_set_bit + 1;
+
+	if(workld->pid_bit) {
+		struct pid_work *t;
+
+		t = workld->next;
+		bit = t->pid_bit;
+
+		workld->next = t->next;
+
+		free(t);
+		workld->pid_bit--;
+
+		cached = 1;
+	}
+
+
+	if(bit == (MAX_PID - MIN_PID) + 1) {
+		printf("Pid cannot be allocated wait for other process to exit\n");
+		return 1;
+	}
+
+	arr_index = bit / sizeof *map;
+	shift = bit % sizeof *map;
+	map[arr_index] |= (1 << shift);
+	if(!cached)
+		last_set_bit = bit;
+
+	return MIN_PID + bit;
+}
+
+void release_pid(int pid)
+{
+	int bit;
+	int arr_index;
+	int shift;
+	struct pid_work *new_entry;
+
+	bit = pid - MIN_PID;
+
+	arr_index = bit / sizeof *map;
+	shift = bit % sizeof *map;
+	map[arr_index] &= ~(1 << shift);
+
+	new_entry = malloc(sizeof *new_entry);
+	new_entry->pid_bit = bit;
+	new_entry->next = workld->next;
+	cache->next = new_entry;
+	cache->pid_bit++;
+}
+
+void deallocate_map()
+{
+	struct pid_cache *p, *t;
+
+	for(p = workld; p != NULL; t = p, p = p->next, free(t));
+	free(map);
+}
